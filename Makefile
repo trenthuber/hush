@@ -6,7 +6,7 @@ SRC = $(wildcard ./src/*.c)
 OBJ = $(SRC:.c=.o)
 BIN = ./bin
 
-all: clean hush test
+all: clean hush run
 
 clean:
 	rm -rf $(BIN) $(OBJ)
@@ -15,7 +15,7 @@ hush: $(OBJ)
 	mkdir -p $(BIN)
 	cc -o $(BIN)/hush $^ $(LDFLAGS)
 
-test:
+run:
 	$(BIN)/hush
 
 %.o: %.c

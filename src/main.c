@@ -20,6 +20,7 @@ int main(void)
 		Hush_Lexer lexer = hl_init_lexer(buffer, BUFFER_CAP);
 		Hush_Command command = {0};
 		while(hp_get_command(&lexer, &command)){
+			// Execute command in here 
 			hp_print_command(command);
 			hp_flush_command(&command);
 		}

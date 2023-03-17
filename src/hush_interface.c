@@ -5,7 +5,6 @@
 #define KEY_CAP 5
 
 typedef struct termios Termios;
-
 static Termios original;
 
 void hi_init_terminal(int file_des)
@@ -14,7 +13,7 @@ void hi_init_terminal(int file_des)
 
 	Termios raw = original;
 	raw.c_iflag |= ICRNL;
-	raw.c_lflag &= ~(ICANON | ECHO | ISIG);
+	raw.c_lflag &= ~(ICANON | ECHO);
 	tcsetattr(file_des, TCSANOW, &raw);
 	return;
 }
@@ -25,78 +24,102 @@ void hi_release_terminal(int file_des)
 	return;
 }
 
+static bool hi_key_buffer_is_empty(char *key, size_t key_cap)
+{
+	size_t sum = 0;
+	for(size_t i = 0; i < key_cap; ++i){
+		sum += key[i];
+	}
+	return sum == 0 ? true : false;
+}
+
 bool hi_fill_buffer(int file_des, char *buffer, size_t buffer_cap)
 {
-	size_t cursor = 0;
+	size_t cursor = 0, buffer_end = 0;
 	char key[KEY_CAP] = {0};
-	const char zero[KEY_CAP] = {0};
 	memset(buffer, 0, buffer_cap);
-	memcpy(key, zero, KEY_CAP);
 
 	char * const hush_prompt = "hush % ";
-	write(1, hush_prompt, strlen(hush_prompt));
+	const size_t hush_prompt_len = strlen(hush_prompt);
+	write(1, hush_prompt, hush_prompt_len);
 
 	for(ever){
-		buffer_loop_start:
 		read(file_des, key, KEY_CAP);
 		switch(key[0]){
-			case '\003': // Control-C
-				write(1, "\n", 1);
-				buffer[0] = '\0';
-				return true;
+			// TODO: Handle control-C with signal.h
 			case '\004': // Control-D
 				write(1, "\n", 1);
 				return false;
 			case '\012': // New line
 				write(1, "\n", 1);
-				buffer[cursor] = '\0';
+				buffer[buffer_end] = '\0';
 				return true;
-			case '\033': // Escape sequence
+			case '\033':
 				if(key[1] == '['){
 					switch(key[2]){
 						case 'A': // Up arrow
 							// TODO
-							printf("UP ARROW\n");
+							printf("UP ARROW");
 							break;
 						case 'B': // Down arrow
 							// TODO
-							printf("DOWN ARROW\n");
+							printf("DOWN ARROW");
 							break;
 						case 'C': // Right arrow
-							// TODO
-							printf("RIGHT ARROW\n");
+							if(cursor < buffer_end){
+								write(1, &buffer[cursor], 1);
+								++cursor;
+							}
 							break;
 						case 'D': // Left arrow
-							// TODO
-							printf("LEFT ARROW\n");
+							if(cursor > 0){
+								write(1, "\b", 1);
+								--cursor;
+							}
 							break;
 						default:
-							goto buffer_loop_start;
+							break;
 					}
-				}else if(key[1] == '\0' && key[2] == '\0' &&
-						 key[3] == '\0' && key[4] == '\0'){
-					// TODO
-					printf("ESC\n");
+				}else if(hi_key_buffer_is_empty(&key[1], KEY_CAP - 1)){ // Escape key (clear line)
+					write(1, "\r", 1);
+					for(size_t i = 0; i < buffer_end + hush_prompt_len; ++i){
+						write(1, " ", 1);
+					}
+					write(1, "\r", 1);
+					write(1, hush_prompt, hush_prompt_len);
 					cursor = 0;
+					buffer_end = 0;
 					buffer[0] = '\0';
-				}else{
-					break;
-				}
-				return true;
-			case '\177': // Backspace
-				// TODO
-				if(cursor > 0){
-					--cursor;
 				}
 				break;
-			default: // Printable char
-				write(1, key, 1);
-				if(cursor < buffer_cap - 1){
-					buffer[cursor++] = key[0];
-				}else{
-					buffer[buffer_cap] = '\0';
-					return true;
+			case '\177': // Backspace
+				if(cursor > 0){
+					write(1, "\b", 1);
+					write(1, &buffer[cursor], buffer_end - cursor + 1);
+					write(1, " ", 1);
+					for(size_t i = 0; i < buffer_end - cursor + 1; ++i){
+						write(1, "\b", 1);
+					}
+					memmove(&buffer[cursor - 1], &buffer[cursor], buffer_end - cursor + 1);
+					--cursor;
+					--buffer_end;
 				}
+				break;
+			default: // Printable character
+				if(buffer_end < buffer_cap - 1){
+					write(1, key, 1);
+					if(cursor != buffer_end){
+						write(1, &buffer[cursor], buffer_end - cursor + 1);
+						for(size_t i = 0; i < buffer_end - cursor; ++i){
+							write(1, "\b", 1);
+						}
+						memmove(&buffer[cursor + 1], &buffer[cursor], buffer_end - cursor + 1);
+					}
+					buffer[cursor] = key[0];
+					++cursor;
+					++buffer_end;
+				}
+				break;
 		}
 	}
 }
