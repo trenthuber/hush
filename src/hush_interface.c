@@ -7,7 +7,7 @@
 #include "common.h"
 
 #define KEY_CAP 5
-#define HIST_CAP 25
+#define HIST_CAP 4
 
 typedef struct termios Termios;
 static Termios original;
@@ -18,6 +18,9 @@ typedef struct {
 	size_t curr;
 } Hist;
 static Hist hist;
+
+char * const hush_prompt = "hush % ";
+const size_t hush_prompt_len = strlen(hush_prompt);
 
 void hi_init_terminal(void)
 {
@@ -33,6 +36,17 @@ void hi_init_terminal(void)
 void hi_release_terminal(void)
 {
 	tcsetattr(STDIN_FILENO, TCSANOW, &original);
+	return;
+}
+
+static void hi_clear_terminal_prompt(size_t curr_buff_len)
+{
+	write(STDOUT_FILENO, "\r", 1);
+	for(size_t i = 0; i < curr_buff_len + hush_prompt_len; ++i){
+		write(STDOUT_FILENO, " ", 1);
+	}
+	write(STDOUT_FILENO, "\r", 1);
+	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
 	return;
 }
 
@@ -106,14 +120,13 @@ static bool hi_key_buffer_is_empty(const char *key, size_t key_cap)
 
 bool hi_fill_buffer(char *buffer)
 {
-	size_t cursor = 0, buffer_end = 0;
+	size_t cursor = 0, buffer_end = 0, hist_cursor = hist.curr;
 	char key[KEY_CAP] = {0};
+	bool at_beginning = false;
 	memset(buffer, 0, BUFF_CAP);
+	char temp_buffer[BUFF_CAP] = {0};
 
-	char * const hush_prompt = "hush % ";
-	const size_t hush_prompt_len = strlen(hush_prompt);
 	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
-
 	for(ever){
 		read(STDIN_FILENO, key, KEY_CAP);
 		switch(key[0]){
@@ -124,16 +137,74 @@ bool hi_fill_buffer(char *buffer)
 			case '\012': // New line
 				write(STDOUT_FILENO, "\n", 1);
 				buffer[buffer_end] = '\0';
-				hi_write_to_hist(buffer);
+				if(buffer_end != 0){
+					hi_write_to_hist(buffer);
+					hist_cursor = hist.curr;
+				}
 				return true;
 			case '\033':
 				if(key[1] == '['){
 					switch(key[2]){
 						case 'A': // Up arrow
-							// TODO: Something weird going on with these keys?
+							if(at_beginning){
+								break;
+							}
+
+							// Save current buffer for later use
+							if(hist_cursor == hist.curr){
+								memcpy(temp_buffer, buffer, buffer_end);
+								temp_buffer[buffer_end + 1] = '\0';
+							}
+
+							// Decrement history cursor
+							if(hist_cursor == 0){
+								if(hist.buff[HIST_CAP - 1][0] == '\0'){
+									break;
+								}
+								hist_cursor = HIST_CAP;
+							}
+							if(--hist_cursor == hist.curr){
+								at_beginning = true;
+							}
+
+							hi_clear_terminal_prompt(buffer_end);
+
+							char *prev_line = hist.buff[hist_cursor];
+							size_t prev_line_len = strlen(prev_line) - 1; // Minus 1 to ignore newline
+							write(STDOUT_FILENO, prev_line, prev_line_len);
+							strncpy(buffer, prev_line, prev_line_len);
+							buffer_end = cursor = prev_line_len;
+							buffer[buffer_end] = '\0';
 							break;
 						case 'B': // Down arrow
-							// TODO
+
+							// Increment history cursor
+							if(hist_cursor == hist.curr && !at_beginning){
+								break;
+							}
+							at_beginning = false;
+
+							if(hist_cursor == HIST_CAP - 1){
+								hist_cursor = 0;
+							}else{
+								++hist_cursor;
+							}
+
+							hi_clear_terminal_prompt(buffer_end);
+
+							char *next_line = hist.buff[hist_cursor];
+							size_t next_line_len = strlen(next_line) - 1; // Minus 1 to ignore newline
+
+							// Pull previous buffer for current use
+							if(hist_cursor == hist.curr){
+								next_line = temp_buffer;
+								next_line_len = strlen(temp_buffer);
+							}
+
+							write(STDOUT_FILENO, next_line, next_line_len);
+							strncpy(buffer, next_line, next_line_len + 1);
+							buffer_end = cursor = next_line_len;
+							buffer[buffer_end] = '\0';
 							break;
 						case 'C': // Right arrow
 							if(cursor < buffer_end){
@@ -151,12 +222,7 @@ bool hi_fill_buffer(char *buffer)
 							break;
 					}
 				}else if(hi_key_buffer_is_empty(&key[1], KEY_CAP - 1)){ // Escape key (clear line)
-					write(STDOUT_FILENO, "\r", 1);
-					for(size_t i = 0; i < buffer_end + hush_prompt_len; ++i){
-						write(STDOUT_FILENO, " ", 1);
-					}
-					write(STDOUT_FILENO, "\r", 1);
-					write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
+					hi_clear_terminal_prompt(buffer_end);
 					cursor = 0;
 					buffer_end = 0;
 					buffer[0] = '\0';
