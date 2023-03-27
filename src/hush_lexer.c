@@ -108,7 +108,7 @@ bool hl_get_lexeme(Hush_Lexer *lexer, Hush_Lexeme *result)
 					result->kind = HUSH_LEXEME_KIND_FILE_ERR;
 					result->value = sv_pop_num_chars(&lexer->remaining, 2);
 					break;
-				case '+':
+				case '>':
 					result->kind = HUSH_LEXEME_KIND_FILE_APPEND;
 					result->value = sv_pop_num_chars(&lexer->remaining, 2);
 					break;

@@ -9,3 +9,4 @@
 #include "string_view.h"
 
 #define ever ;;
+#define BUFF_CAP 4096

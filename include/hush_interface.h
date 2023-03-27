@@ -3,8 +3,10 @@
 
 #include <stdbool.h>
 
-void hi_init_terminal(int file_des);
-void hi_release_terminal(int file_des);
-bool hi_fill_buffer(int file_des, char *buffer, size_t buffer_cap);
+void hi_init_terminal(void);
+void hi_release_terminal(void);
+void hi_init_history(void);
+void hi_release_history(void);
+bool hi_fill_buffer(char *buffer);
 
 #endif

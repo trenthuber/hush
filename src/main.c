@@ -3,21 +3,19 @@
 #include "hush_lexer.h"
 #include "hush_parser.h"
 
-#define BUFFER_CAP 4096
-
 int main(void)
 {
-	char buffer[BUFFER_CAP] = {0};
-	int stdin_file_des = fileno(stdin);
-	hi_init_terminal(stdin_file_des);
+	char buffer[BUFF_CAP] = {0};
+	hi_init_terminal();
+	hi_init_history();
 
 	for(ever){
-		if(!hi_fill_buffer(stdin_file_des, buffer, BUFFER_CAP)){
+		if(!hi_fill_buffer(buffer)){
 			break;
 		}
 		printf("BUFFER: |%s|\n", buffer);
 
-		Hush_Lexer lexer = hl_init_lexer(buffer, BUFFER_CAP);
+		Hush_Lexer lexer = hl_init_lexer(buffer, BUFF_CAP);
 		Hush_Command command = {0};
 		while(hp_get_command(&lexer, &command)){
 			// Execute command in here 
@@ -26,7 +24,8 @@ int main(void)
 		}
 	}
 
-	hi_release_terminal(stdin_file_des);
+	hi_release_terminal();
+	hi_release_history();
 
 	// TODO: Parse error messages
 	// TODO: Region based memory management (for easier freeing of variables)
