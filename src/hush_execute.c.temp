@@ -1,0 +1,47 @@
+#include <sys/param.h>
+#include <sys/wait.h>
+
+#include "common.h"
+#include "hush_lexer.h"
+#include "hush_parser.h"
+
+static bool he_is_file_path(String_View str)
+{
+	if (str.size == 0) {
+		return false;
+	}
+	char first = str.content[0];
+	if (str.size == 1) {
+		return first == '/' || first == '.';
+	}
+	char second = str.content[1];
+	if (str.size == 2) {
+		return first == '/' ||
+				(first == '.' && 
+				(second == '/' || second == '.'));
+	}
+	char third = str.content[2];
+	return first == '/' ||
+			(first == '.' &&
+			(second == '/' ||
+			(second == '.' && third == '/')));
+}
+
+int he_run_command(Hush_Command command)
+{
+	int result = 0;
+	if (fork()) {
+		wait(NULL);
+	} else {
+		if (he_is_file_path(command.name)) {
+			char real_path[PATH_MAX] = {0};
+			// TODO: Doesn't get all the complexity of relative path names
+			realpath(sv_to_str(command.name), real_path);
+			// printf("relative path: %s\nreal path: %s\n", sv_to_str(command.name), real_path);
+			result = execv(real_path, );
+		} else {
+			result = execvp(sv_to_str(command.name), );
+		}
+	}
+	return result; // Don't think this will work????
+}

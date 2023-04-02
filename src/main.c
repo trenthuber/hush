@@ -1,27 +1,25 @@
 #include "common.h"
 #include "hush_interface.h"
-#include "hush_lexer.h"
-#include "hush_parser.h"
+#include "hush_tokenizer.h"
 
 int main(void)
 {
-	char buffer[BUFF_CAP] = {0};
+	Buffer buffer = {0};
 	hi_init_terminal();
 	hi_init_history();
 
-	for(ever){
-		if(!hi_fill_buffer(buffer)){
+	while (true) {
+		if (!hi_fill_buffer(&buffer)) {
 			break;
 		}
-		printf("BUFFER: |%s|\n", buffer);
+		printf("BUFFER: |%s|\n", buffer.text);
 
-		Hush_Lexer lexer = hl_init_lexer(buffer, BUFF_CAP);
-		Hush_Command command = {0};
-		while(hp_get_command(&lexer, &command)){
-			// Execute command in here 
-			hp_print_command(command);
-			hp_flush_command(&command);
+		int i = 1;
+		char *token;
+		while ((token = ht_get_token(&buffer)) != NULL) {
+			printf("token %d: %s\n", i++, token);
 		}
+		printf("END OF TOKENS\n\n");
 	}
 
 	hi_release_terminal();
