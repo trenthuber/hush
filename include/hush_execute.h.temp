@@ -1,6 +1,0 @@
-#ifndef HUSH_EXECUTE_H_
-#define HUSH_EXECUTE_H_
-
-void he_run_command(Hush_Command command);
-
-#endif

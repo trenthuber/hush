@@ -1,7 +1,13 @@
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <termios.h>
 #include <pwd.h>
 
-#include "common.h"
+#include "buffer.h"
 
 #define KEY_CAP 5
 #define HIST_CAP 100
@@ -19,7 +25,7 @@ static Hist hist;
 char * const hush_prompt = "hush % ";
 const size_t hush_prompt_len = strlen(hush_prompt);
 
-void hi_init_terminal(void)
+void init_terminal(void)
 {
 	tcgetattr(STDIN_FILENO, &original);
 
@@ -29,12 +35,12 @@ void hi_init_terminal(void)
 	tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
 
-void hi_release_terminal(void)
+void release_terminal(void)
 {
 	tcsetattr(STDIN_FILENO, TCSANOW, &original);
 }
 
-static void hi_clear_terminal_prompt(size_t input_len)
+static void clear_terminal_prompt(size_t input_len)
 {
 	write(STDOUT_FILENO, "\r", 1);
 	for (size_t i = 0; i < input_len + hush_prompt_len; ++i) {
@@ -44,7 +50,7 @@ static void hi_clear_terminal_prompt(size_t input_len)
 	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
 }
 
-void hi_init_history(void)
+void init_history(void)
 {
 	struct passwd *user_pw = getpwuid(getuid());
 
@@ -85,6 +91,7 @@ void hi_init_history(void)
 	}
 
 	// TODO: Changing history capacity without clearing history file
+	// Idea: Perhaps you leave the previous history cap in the file as well, and then compare against it and do your thing
 	if (i != HIST_CAP) {
 		assert(i == hist.curr);
 	}
@@ -92,7 +99,7 @@ void hi_init_history(void)
 	fclose(hist_file);
 }
 
-void hi_release_history(void)
+void release_history(void)
 {
 	FILE *hist_file = fopen(hist.path, "w+");
 	fprintf(hist_file, "%zu\n", hist.curr);
@@ -103,7 +110,7 @@ void hi_release_history(void)
 	fclose(hist_file);
 }
 
-static bool hi_key_buffer_is_empty(const char *key, size_t key_cap)
+static bool key_buffer_is_empty(const char *key, size_t key_cap)
 {
 	size_t sum = 0;
 	for (size_t i = 0; i < key_cap; ++i) {
@@ -112,11 +119,11 @@ static bool hi_key_buffer_is_empty(const char *key, size_t key_cap)
 	return sum == 0 ? true : false;
 }
 
-bool hi_fill_buffer(Buffer *buffer)
+bool fill_buffer(Buffer *buffer)
 {
-	memset(buffer->text, 0, BUFF_CAP);
-	buffer->cursor = 0;
+	buffer->cursor = buffer->text;
 
+	// TODO: refactor input_cursor and whatnot to be a (char *)
 	size_t input_cursor = 0, input_end = 0, hist_input_cursor = hist.curr;
 	char key[KEY_CAP] = {0};
 	bool at_beginning = false;
@@ -134,7 +141,8 @@ bool hi_fill_buffer(Buffer *buffer)
 			case '\012': { // New line
 				write(STDOUT_FILENO, "\n", 1);
 				buffer->text[input_end] = '\0';
-				buffer->end = input_end;
+				buffer->end = buffer->text + input_end;
+// printf("*buffer->cursor = %c (%d), *buffer->end = (%d)\n", *buffer->cursor, *buffer->cursor, *buffer->end);
 				if (input_end != 0) {
 					strncpy(hist.buff[hist.curr++], buffer->text, BUFF_CAP);
 					hist.curr %= HIST_CAP;
@@ -166,7 +174,7 @@ bool hi_fill_buffer(Buffer *buffer)
 								at_beginning = true;
 							}
 
-							hi_clear_terminal_prompt(input_end);
+							clear_terminal_prompt(input_end);
 
 							char *prev_line = hist.buff[hist_input_cursor];
 							size_t prev_line_len = strlen(prev_line);
@@ -190,7 +198,7 @@ bool hi_fill_buffer(Buffer *buffer)
 								++hist_input_cursor;
 							}
 
-							hi_clear_terminal_prompt(input_end);
+							clear_terminal_prompt(input_end);
 
 							char *next_line = hist.buff[hist_input_cursor];
 							size_t next_line_len = strlen(next_line);
@@ -221,8 +229,8 @@ bool hi_fill_buffer(Buffer *buffer)
 							}
 						}
 					}
-				} else if (hi_key_buffer_is_empty(&key[1], KEY_CAP - 1)) { // Escape key (clear line)
-					hi_clear_terminal_prompt(input_end);
+				} else if (key_buffer_is_empty(&key[1], KEY_CAP - 1)) { // Escape key (clear line)
+					clear_terminal_prompt(input_end);
 					input_cursor = 0;
 					input_end = 0;
 					Buffer zero_reinit = {0};

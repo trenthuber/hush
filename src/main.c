@@ -1,29 +1,30 @@
-#include "common.h"
-#include "hush_interface.h"
-#include "hush_tokenizer.h"
+#include <stdbool.h>
+#include <stdlib.h>
+
+#include "buffer.h"
+#include "lexer.h"
 
 int main(void)
 {
-	Buffer buffer = {0};
-	hi_init_terminal();
-	hi_init_history();
+	init_terminal();
+	init_history();
 
 	while (true) {
-		if (!hi_fill_buffer(&buffer)) {
+		Buffer buffer = {0};
+		if (!fill_buffer(&buffer)) {
 			break;
 		}
-		printf("BUFFER: |%s|\n", buffer.text);
 
-		int i = 1;
-		char *token;
-		while ((token = ht_get_token(&buffer)) != NULL) {
-			printf("token %d: %s\n", i++, token);
+		Lexeme lexeme;
+		lexeme = get_next_lexeme(&buffer);
+		while (lexeme.content != NULL) {
+			print_lexeme(lexeme);
+			lexeme = get_next_lexeme(&buffer);
 		}
-		printf("END OF TOKENS\n\n");
 	}
 
-	hi_release_terminal();
-	hi_release_history();
+	release_terminal();
+	release_history();
 
 	// TODO: Parse error messages
 	// TODO: Region based memory management (for easier freeing of variables)
