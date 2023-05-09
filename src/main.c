@@ -17,7 +17,7 @@ int main(void)
 
 		Lexeme lexeme;
 		lexeme = get_next_lexeme(&buffer);
-		while (lexeme.content != NULL) {
+		while (lexeme.type != HUSH_LEXEME_TYPE_END_OF_BUFFER) {
 			print_lexeme(lexeme);
 			lexeme = get_next_lexeme(&buffer);
 		}

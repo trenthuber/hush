@@ -3,9 +3,10 @@
 
 typedef enum {
 	HUSH_LEXEME_TYPE_ARGUMENT = 0,
-	HUSH_LEXEME_TYPE_LITERAL, // ';' and '|' lexemes
 	HUSH_LEXEME_TYPE_STRING,
 	HUSH_LEXEME_TYPE_FILE_REDIRECT,
+	HUSH_LEXEME_TYPE_END_OF_COMMAND, // ';' and '|' lexemes
+	HUSH_LEXEME_TYPE_END_OF_BUFFER,
 } Hush_Lexeme_Type;
 
 typedef struct {

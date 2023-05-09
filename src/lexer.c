@@ -14,9 +14,10 @@ static char *get_lexeme_type_string(Hush_Lexeme_Type type)
 {
 	switch (type) {
 		case HUSH_LEXEME_TYPE_ARGUMENT: return "HUSH_LEXEME_TYPE_ARGUMENT";
-		case HUSH_LEXEME_TYPE_LITERAL: return "HUSH_LEXEME_TYPE_LITERAL";
 		case HUSH_LEXEME_TYPE_STRING: return "HUSH_LEXEME_TYPE_STRING";
 		case HUSH_LEXEME_TYPE_FILE_REDIRECT: return "HUSH_LEXEME_TYPE_FILE_REDIRECT";
+		case HUSH_LEXEME_TYPE_END_OF_COMMAND: return "HUSH_LEXEME_TYPE_END_OF_COMMAND";
+		case HUSH_LEXEME_TYPE_END_OF_BUFFER: return "HUSH_LEXEME_TYPE_END_OF_BUFFER";
 		default: return NULL;
 	}
 }
@@ -24,14 +25,20 @@ static char *get_lexeme_type_string(Hush_Lexeme_Type type)
 void print_lexeme(Lexeme lexeme)
 {
 	printf("Type: %s\n", get_lexeme_type_string(lexeme.type));
-	printf("Content: '%s`\n", lexeme.content);
-	if (lexeme.type == HUSH_LEXEME_TYPE_FILE_REDIRECT) {
+	if (lexeme.type != HUSH_LEXEME_TYPE_FILE_REDIRECT) {
+		printf("Content: '%s`\n", lexeme.content);
+	} else {
 		printf("File Redirect:\n");
 		printf("	 input_fd = %d\n", lexeme.file_redirect.input_fd);
 		printf("	output_fd = %d\n", lexeme.file_redirect.output_fd);
 		printf("	     mode = %d\n", lexeme.file_redirect.mode);
 	}
 	printf("\n");
+}
+
+static bool is_digit(char chr)
+{
+	return chr >= '0' && chr <= '9';
 }
 
 static bool is_wspace(char chr)
@@ -44,143 +51,133 @@ static bool is_lexeme_term(char chr)
 	return chr == ';' || chr == '|' || chr == '<' || chr == '>' || is_wspace(chr);
 }
 
-static bool is_file_redirect(char *str, File_Redirect *file_redirect)
+static char *get_file_redirect_mode_string(int mode)
 {
-	size_t cursor = 0;
-	size_t str_len = strlen(str);
-	
-	// Get input file descriptor
-	for (; cursor < str_len && str[cursor] >= '0' && str[cursor] <= '9'; ++cursor);
-	if (cursor > 0) {
-		char *first_num = (char *) malloc((cursor + 1) * sizeof (char));
-		first_num[cursor] = '\0';
-		strncpy(first_num, str, cursor);
-		file_redirect->input_fd = (int) strtol(first_num, (char **) NULL, 10);
+	switch (mode) {
+		case O_RDONLY: return "<";
+		case O_WRONLY: return ">";
+		case O_RDWR: return "<>";
+		case O_APPEND: return ">>";
+		default: return NULL;
 	}
-
-	// Get file mode
-	switch (str[cursor]) {
-		case '<': {
-			file_redirect->mode = O_RDONLY;
-			if (cursor < str_len - 1 && str[++cursor] == '>') {
-				file_redirect->mode = O_RDWR;
-				++cursor;
-			}
-			break;
-		}
-		case '>': {
-			file_redirect->mode = O_WRONLY;
-			if (cursor == 0) {
-				file_redirect->input_fd = STDOUT_FILENO;
-			}
-			if (cursor < str_len - 1 && str[++cursor] == '>') {
-				file_redirect->mode = O_APPEND;
-				++cursor;
-			}
-			break;
-		}
-		default: {
-			return false;
-		}
-	}
-	if (cursor == str_len) {
-		return false;
-	}
-	
-	// Get output file descriptor
-	if (str[cursor++] == '&') {
-		if (cursor == str_len) {
-			fprintf(stderr, "hush: parse error after '&`, expected a number\n");
-			exit(1);
-		}
-		size_t output_fd_start = cursor;
-		for (; cursor < str_len && str[cursor] >= 48 && str[cursor] <= 57; ++cursor);
-		if (cursor != str_len) {
-			fprintf(stderr, "hush: parse error after '&`, expected a number\n");
-			exit(1);
-		}
-		file_redirect->output_fd = (int) strtol(&str[output_fd_start], (char **) NULL, 10);
-	} else {
-		for (; cursor < str_len && is_wspace(str[cursor]); ++cursor);
-		if (cursor == str_len) {
-			return false;
-		}
-		if ((file_redirect->output_fd = open(&str[cursor], file_redirect->mode)) == -1) {
-			fprintf(stderr, "hush: can't open file '%s`\n", &str[cursor]);
-			exit(1);
-		}
-	}
-
-	return true;
 }
 
 Lexeme get_next_lexeme(Buffer *buffer)
 {
 	Lexeme result = {0};
+	for (; buffer->cursor < buffer->end && is_wspace(*buffer->cursor); ++buffer->cursor);
 	if (buffer->cursor == buffer->end) {
-		return result; // Check if lexeme.content == NULL outside this function
+		result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+		return result;
 	}
+
 	switch (*buffer->cursor) {
 		case '|': 
 		case ';': {
-			result.type = HUSH_LEXEME_TYPE_LITERAL;
-			if (buffer->cursor + 1 == buffer->end) {
+			result.type = HUSH_LEXEME_TYPE_END_OF_COMMAND;
+			if (++buffer->cursor == buffer->end) {
 				result.content = buffer->cursor;
-			} else if (is_wspace(*(buffer->cursor + 1))) {
-				*(buffer->cursor + 1) = '\0';
-				result.content = buffer->cursor;
-				buffer->cursor += 2;
+			} else if (is_wspace(*buffer->cursor)) {
+				*buffer->cursor = '\0';
+				result.content = buffer->cursor - 1;
+				++buffer->cursor;
 			} else {
 				result.content = (char *) malloc(2 * sizeof (char));
 				if (result.content == NULL) {
 					fprintf(stderr, "hush: unable to allocate memory\n");
 					exit(1);
 				}
-				result.content[0] = *buffer->cursor;
+				result.content[0] = *(buffer->cursor - 1);
 				result.content[1] = '\0';
-				++buffer->cursor;
 			}
 			break;
 		}
+		case '\'':
 		case '"': {
 			result.type = HUSH_LEXEME_TYPE_STRING;
 			assert(false && "get_next_lexeme: String literal lexing not implemented yet");
 			break;
 		}
 		default: {
+			result.type = HUSH_LEXEME_TYPE_FILE_REDIRECT;
 			char *begin = buffer->cursor;
 
 			// "Skip" over any starting numbers
-			for (; buffer->cursor < buffer->end && *buffer->cursor >= '0' && *buffer->cursor <= '9'; ++buffer->cursor);
+			for (; buffer->cursor < buffer->end && is_digit(*buffer->cursor); ++buffer->cursor);
 
-			// Then "skip" over any file redirection symbols
-			if (buffer->cursor < buffer->end && (*buffer->cursor == '<' || *buffer->cursor == '>')) {
-				++buffer->cursor;
-				if (buffer->cursor == buffer->end) {
-					fprintf(stderr, "hush: parse error near '%c`\n", *(buffer->cursor - 1));
+			// Record the input file descriptor
+			if (buffer->cursor != begin) {
+				size_t input_fd_len = buffer->cursor - begin;
+				char *input_fd_str = (char *) malloc((input_fd_len + 1) * sizeof (char));
+				if (input_fd_str == NULL) {
+					fprintf(stderr, "hush: couldn't allocate memory to 'input_fd_str`\n");
 					exit(1);
 				}
-				if (*buffer->cursor == '>') {
-					++buffer->cursor;
+				input_fd_str[input_fd_len] = '\0';
+				strncpy(input_fd_str, begin, input_fd_len);
+				result.file_redirect.input_fd = (int) strtol(input_fd_str, (char **) NULL, 10);
+			}
+
+			// Check if the current lexeme is a file redirection
+			result.file_redirect.mode = O_WRONLY;
+			switch (*buffer->cursor) {
+				case '<': {
+					result.file_redirect.mode = O_RDONLY;
 				}
-				for (; buffer->cursor < buffer->end && is_wspace(*buffer->cursor); ++buffer->cursor);
-				if (buffer->cursor == buffer->end) {
-					fprintf(stderr, "hush: parse error near '%c`\n", *(buffer->cursor - 1));
-					exit(1);
-				}
-				if (*buffer->cursor == '&') {
-					++buffer->cursor;
-					for (; buffer->cursor < buffer->end && *buffer->cursor >= '0' && *buffer->cursor <= '9'; ++buffer->cursor);
-					if (!is_lexeme_term(*buffer->cursor)) {
-						fprintf(stderr, "hush: parse error after '&`, expected numbers\n");
+				case '>': {
+					if (buffer->cursor++ == begin && result.file_redirect.mode == O_WRONLY) {
+						result.file_redirect.input_fd = STDOUT_FILENO;
+					}
+					if (buffer->cursor == buffer->end) {
+						fprintf(stderr, "hush: parse error after '%s'\n", get_file_redirect_mode_string(result.file_redirect.mode));
 						exit(1);
 					}
+					if (*buffer->cursor == '>') {
+						++buffer->cursor;
+						if (result.file_redirect.mode == O_WRONLY) {
+							result.file_redirect.mode = O_APPEND;
+						} else {
+							result.file_redirect.mode = O_RDWR;
+						}
+					}
+					if (buffer->cursor == buffer->end) {
+						fprintf(stderr, "hush: parse error after '%s`\n", get_file_redirect_mode_string(result.file_redirect.mode));
+						exit(1);
+					}
+
+					if (*buffer->cursor == '&') {
+						begin = ++buffer->cursor;
+						for (; buffer->cursor < buffer->end && is_digit(*buffer->cursor); ++buffer->cursor);
+						if (buffer->cursor == begin || *buffer->cursor == '<' || *buffer->cursor == '>' || \
+								!(buffer->cursor == buffer->end || is_lexeme_term(*buffer->cursor))) {
+							fprintf(stderr, "hush: parse error after '&`\n");
+							exit(1);
+						}
+						size_t output_fd_len = buffer->cursor - begin;
+						char *output_fd_str = (char *) malloc((output_fd_len + 1) * sizeof (char));
+						output_fd_str[output_fd_len + 1] = '\0';
+						strncpy(output_fd_str, begin, output_fd_len);
+						result.file_redirect.output_fd = (int) strtol(output_fd_str, (char **) NULL, 10);
+						return result;
+					} else {
+						for (; buffer->cursor < buffer->end && is_wspace(*buffer->cursor); ++buffer->cursor);
+						if (buffer->cursor == buffer->end) {
+							fprintf(stderr, "hush: parse error after '%s`\n", get_file_redirect_mode_string(result.file_redirect.mode));
+							exit(1);
+						}
+						begin = buffer->cursor;
+					}
+					break;
+				}
+				default: {
+					result.type = HUSH_LEXEME_TYPE_ARGUMENT;
+					break;
 				}
 			}
 
 			for (; buffer->cursor < buffer->end && !is_lexeme_term(*buffer->cursor); ++buffer->cursor);
 
-			// Find the most effiecent way to allocate memory to the lexeme content
+			// Find the most efficient way to allocate memory to the lexeme content
 			if (buffer->cursor == buffer->end) {
 				result.content = begin;
 			} else if (is_wspace(*buffer->cursor)) {
@@ -197,8 +194,11 @@ Lexeme get_next_lexeme(Buffer *buffer)
 				result.content[content_len] = '\0';
 			}
 			
-			if (is_file_redirect(result.content, &result.file_redirect)) {
-				result.type = HUSH_LEXEME_TYPE_FILE_REDIRECT;
+			if (result.type == HUSH_LEXEME_TYPE_FILE_REDIRECT) {
+				if ((result.file_redirect.output_fd = open(result.content, result.file_redirect.mode)) == -1) {
+					fprintf(stderr, "hush: file '%s` cannot be opened\n", result.content);
+					exit(1);
+				}
 			}
 		}
 	}
