@@ -18,7 +18,7 @@ static Termios original;
 typedef struct {
 	char *path;
 	char buff[HIST_CAP][BUFF_CAP];
-	size_t curr;
+	size_t end;
 } Hist;
 static Hist hist;
 
@@ -65,7 +65,7 @@ void init_history(void)
 
 	FILE *hist_file = fopen(hist.path, "r+");
 	if (hist_file == NULL) {
-		hist.curr = 0;
+		hist.end = 0;
 		return;
 	}
 	fseek(hist_file, 0, SEEK_SET);
@@ -73,10 +73,10 @@ void init_history(void)
 	// Get curr line number
 	char num[BUFF_CAP] = {0};
 	if (fgets(num, BUFF_CAP, hist_file) == NULL) {
-		hist.curr = 0;
+		hist.end = 0;
 		return;
 	}
-	if ((hist.curr = (size_t) strtol(num, (char **) NULL, 10)) == 0 && strcmp(num, "0\n") != 0) {
+	if ((hist.end = (size_t) strtol(num, (char **) NULL, 10)) == 0 && strcmp(num, "0\n") != 0) {
 		fprintf(stderr, "hush: history file not formatted properly\n");
 		exit(1);
 	}
@@ -89,25 +89,32 @@ void init_history(void)
 		size_t nl_loc = strnlen(hist.buff[i], BUFF_CAP) - 1;
 		hist.buff[i][nl_loc] = '\0';
 	}
+	fclose(hist_file);
 
 	// TODO: Changing history capacity without clearing history file
 	// Idea: Perhaps you leave the previous history cap in the file as well, and then compare against it and do your thing
 	if (i != HIST_CAP) {
-		assert(i == hist.curr);
+		assert(i == hist.end);
 	}
-	assert(hist.curr < HIST_CAP);
-	fclose(hist_file);
+	assert(hist.end < HIST_CAP);
 }
 
 void release_history(void)
 {
 	FILE *hist_file = fopen(hist.path, "w+");
-	fprintf(hist_file, "%zu\n", hist.curr);
+	fprintf(hist_file, "%zu\n", hist.end);
 	for (size_t i = 0; i < HIST_CAP && hist.buff[i][0] != '\0'; ++i) {
 		fputs(hist.buff[i], hist_file);
 		fputc('\n', hist_file);
 	}
 	fclose(hist_file);
+}
+
+static void empty_key_buffer(char *key, size_t key_cap)
+{
+	for (size_t i = 0; i < key_cap; ++i) {
+		key[i] = '\0';
+	}
 }
 
 static bool key_buffer_is_empty(const char *key, size_t key_cap)
@@ -121,31 +128,35 @@ static bool key_buffer_is_empty(const char *key, size_t key_cap)
 
 bool fill_buffer(Buffer *buffer)
 {
-	buffer->cursor = buffer->text;
+	buffer->cursor = buffer->end = buffer->text;
+	size_t hist_index = hist.end, buffer_len;
 
-	// TODO: refactor input_cursor and whatnot to be a (char *)
-	size_t input_cursor = 0, input_end = 0, hist_input_cursor = hist.curr;
 	char key[KEY_CAP] = {0};
 	bool at_beginning = false;
 	char temp_buffer[BUFF_CAP] = {0};
 
 	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
 	while (true) {
+		empty_key_buffer(key, KEY_CAP);
 		read(STDIN_FILENO, key, KEY_CAP);
+		buffer_len = buffer->end - buffer->text;
 		switch (key[0]) {
 			// TODO: Handle control-C with signal.h?
 			case '\004': { // Control-D
 				write(STDOUT_FILENO, "\n", 1);
 				return false;
 			}
+			// TODO: Figure out tabs?
+			case '\011': { // Tab
+				break;
+			}
 			case '\012': { // New line
 				write(STDOUT_FILENO, "\n", 1);
-				buffer->text[input_end] = '\0';
-				buffer->end = buffer->text + input_end;
-// printf("*buffer->cursor = %c (%d), *buffer->end = (%d)\n", *buffer->cursor, *buffer->cursor, *buffer->end);
-				if (input_end != 0) {
-					strncpy(hist.buff[hist.curr++], buffer->text, BUFF_CAP);
-					hist.curr %= HIST_CAP;
+				buffer->cursor = buffer->text;
+				*buffer->end = '\0';
+				if (buffer->end != buffer->text) {
+					strncpy(hist.buff[hist.end++], buffer->text, BUFF_CAP);
+					hist.end %= HIST_CAP;
 				}
 				return true;
 			}
@@ -158,115 +169,109 @@ bool fill_buffer(Buffer *buffer)
 							}
 
 							// Save current buffer for later use
-							if (hist_input_cursor == hist.curr) {
-								memcpy(temp_buffer, buffer->text, input_end);
-								temp_buffer[input_end] = '\0';
+							if (hist_index == hist.end) {
+								memcpy(temp_buffer, buffer->text, buffer_len);
+								temp_buffer[buffer_len] = '\0';
 							}
 
-							// Decrement history input_cursor
-							if (hist_input_cursor == 0) {
+							// Decrement hist_index
+							if (hist_index == 0) {
 								if (hist.buff[HIST_CAP - 1][0] == '\0') {
 									break;
 								}
-								hist_input_cursor = HIST_CAP;
+								hist_index = HIST_CAP;
 							}
-							if (--hist_input_cursor == hist.curr) {
+							if (--hist_index == hist.end) {
 								at_beginning = true;
 							}
 
-							clear_terminal_prompt(input_end);
+							clear_terminal_prompt(buffer_len);
 
-							char *prev_line = hist.buff[hist_input_cursor];
+							char *prev_line = hist.buff[hist_index];
 							size_t prev_line_len = strlen(prev_line);
 							write(STDOUT_FILENO, prev_line, prev_line_len);
 							strncpy(buffer->text, prev_line, prev_line_len);
-							input_end = input_cursor = prev_line_len;
-							buffer->text[input_end] = '\0';
+							buffer->cursor = buffer->end = buffer->text + prev_line_len;
+							*buffer->end = '\0';
 							break;
 						}
 						case 'B': { // Down arrow
 
-							// Increment history input_cursor
-							if (hist_input_cursor == hist.curr && !at_beginning) {
+							// Increment hist_index
+							if (hist_index == hist.end && !at_beginning) {
 								break;
 							}
 							at_beginning = false;
+							hist_index = hist_index == HIST_CAP - 1 ? 0 : hist_index + 1;
 
-							if (hist_input_cursor == HIST_CAP - 1) {
-								hist_input_cursor = 0;
-							} else {
-								++hist_input_cursor;
-							}
+							clear_terminal_prompt(buffer_len);
 
-							clear_terminal_prompt(input_end);
-
-							char *next_line = hist.buff[hist_input_cursor];
+							char *next_line = hist.buff[hist_index];
 							size_t next_line_len = strlen(next_line);
 
 							// Pull previous buffer for current use
-							if (hist_input_cursor == hist.curr) {
+							if (hist_index == hist.end) {
 								next_line = temp_buffer;
 								next_line_len = strlen(temp_buffer);
 							}
 
 							write(STDOUT_FILENO, next_line, next_line_len);
 							strncpy(buffer->text, next_line, next_line_len + 1);
-							input_end = input_cursor = next_line_len;
-							buffer->text[input_end] = '\0';
+							buffer->cursor = buffer->end = buffer->text + next_line_len;
+							*buffer->end = '\0';
 							break;
 						}
 						case 'C': { // Right arrow
-							if (input_cursor < input_end) {
-								write(STDOUT_FILENO, &buffer->text[input_cursor], 1);
-								++input_cursor;
+							if (buffer->cursor < buffer->end) {
+								write(STDOUT_FILENO, buffer->cursor, 1);
+								++buffer->cursor;
 							}
 							break;
 						}
 						case 'D': { // Left arrow
-							if (input_cursor > 0) {
+							if (buffer->cursor > buffer->text) {
 								write(STDOUT_FILENO, "\b", 1);
-								--input_cursor;
+								--buffer->cursor;
 							}
 						}
 					}
 				} else if (key_buffer_is_empty(&key[1], KEY_CAP - 1)) { // Escape key (clear line)
-					clear_terminal_prompt(input_end);
-					input_cursor = 0;
-					input_end = 0;
-					Buffer zero_reinit = {0};
-					*buffer = zero_reinit;
+					clear_terminal_prompt(buffer_len);
+					memset(buffer->text, 0, BUFF_CAP);
+					buffer->cursor = buffer->end = buffer->text;
+					hist_index = hist.end;
 				}
 				break;
 			}
 			case '\177': { // Backspace
-				if (input_cursor > 0) {
+				if (buffer->cursor > buffer->text) {
 					write(STDOUT_FILENO, "\b", 1);
-					write(STDOUT_FILENO, &buffer->text[input_cursor], input_end - input_cursor + 1);
+					write(STDOUT_FILENO, buffer->cursor, buffer->end - buffer->cursor + 1);
 					write(STDOUT_FILENO, " ", 1);
-					for (size_t i = 0; i < input_end - input_cursor + 1; ++i) {
+					for (size_t i = 0; i < (size_t) (buffer->end - buffer->cursor + 1); ++i) {
 						write(STDOUT_FILENO, "\b", 1);
 					}
-					memmove(&buffer->text[input_cursor - 1], &buffer->text[input_cursor], input_end - input_cursor + 1);
-					--input_cursor;
-					--input_end;
+					memmove(buffer->cursor - 1, buffer->cursor, buffer->end - buffer->cursor + 1);
+					--buffer->cursor;
+					--buffer->end;
 				}
 				break;
 			}
 
 			// TODO: Handle ctrl-v "verbatim insert" thing????
 			default: { // Printable character
-				if (input_end < BUFF_CAP - 1) { // Need space for the null terminator
+				if (buffer_len < BUFF_CAP - 1) { // Need space for the null terminator
 					write(STDOUT_FILENO, key, 1);
-					if (input_cursor != input_end) {
-						write(STDOUT_FILENO, &buffer->text[input_cursor], input_end - input_cursor + 1);
-						for (size_t i = 0; i < input_end - input_cursor; ++i) {
+					if (buffer->cursor != buffer->end) {
+						write(STDOUT_FILENO, buffer->cursor, buffer->end - buffer->cursor + 1);
+						for (size_t i = 0; i < (size_t) (buffer->end - buffer->cursor); ++i) {
 							write(STDOUT_FILENO, "\b", 1);
 						}
-						memmove(&buffer->text[input_cursor + 1], &buffer->text[input_cursor], input_end - input_cursor + 1);
+						memmove(buffer->cursor + 1, buffer->cursor, buffer->end - buffer->cursor + 1);
 					}
-					buffer->text[input_cursor] = key[0];
-					++input_cursor;
-					++input_end;
+					*buffer->cursor = key[0];
+					++buffer->cursor;
+					++buffer->end;
 				}
 			}
 		}
