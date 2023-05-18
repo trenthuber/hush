@@ -1,11 +1,12 @@
 #include <assert.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <termios.h>
 #include <pwd.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "buffer.h"
 
@@ -110,7 +111,7 @@ void release_history(void)
 	fclose(hist_file);
 }
 
-static void empty_key_buffer(char *key, size_t key_cap)
+static void clear_key_buffer(char *key, size_t key_cap)
 {
 	for (size_t i = 0; i < key_cap; ++i) {
 		key[i] = '\0';
@@ -137,7 +138,7 @@ bool fill_buffer(Buffer *buffer)
 
 	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
 	while (true) {
-		empty_key_buffer(key, KEY_CAP);
+		clear_key_buffer(key, KEY_CAP);
 		read(STDIN_FILENO, key, KEY_CAP);
 		buffer_len = buffer->end - buffer->text;
 		switch (key[0]) {
@@ -146,7 +147,7 @@ bool fill_buffer(Buffer *buffer)
 				write(STDOUT_FILENO, "\n", 1);
 				return false;
 			}
-			// TODO: Figure out tabs?
+			// TODO: Figure out tabs
 			case '\011': { // Tab
 				break;
 			}
@@ -163,12 +164,14 @@ bool fill_buffer(Buffer *buffer)
 			case '\033': {
 				if (key[1] == '[') {
 					switch (key[2]) {
+						// TODO: Refactor this code to just have buffer->text point to the array entries instead of copying them
 						case 'A': { // Up arrow
 							if (at_beginning) {
 								break;
 							}
 
 							// Save current buffer for later use
+							*buffer->end = '\0';
 							if (hist_index == hist.end) {
 								memcpy(temp_buffer, buffer->text, buffer_len);
 								temp_buffer[buffer_len] = '\0';
@@ -192,7 +195,6 @@ bool fill_buffer(Buffer *buffer)
 							write(STDOUT_FILENO, prev_line, prev_line_len);
 							strncpy(buffer->text, prev_line, prev_line_len);
 							buffer->cursor = buffer->end = buffer->text + prev_line_len;
-							*buffer->end = '\0';
 							break;
 						}
 						case 'B': { // Down arrow
@@ -210,15 +212,15 @@ bool fill_buffer(Buffer *buffer)
 							size_t next_line_len = strlen(next_line);
 
 							// Pull previous buffer for current use
+							*buffer->end = '\0';
 							if (hist_index == hist.end) {
 								next_line = temp_buffer;
 								next_line_len = strlen(temp_buffer);
 							}
 
 							write(STDOUT_FILENO, next_line, next_line_len);
-							strncpy(buffer->text, next_line, next_line_len + 1);
+							strncpy(buffer->text, next_line, next_line_len);
 							buffer->cursor = buffer->end = buffer->text + next_line_len;
-							*buffer->end = '\0';
 							break;
 						}
 						case 'C': { // Right arrow
@@ -246,7 +248,8 @@ bool fill_buffer(Buffer *buffer)
 			case '\177': { // Backspace
 				if (buffer->cursor > buffer->text) {
 					write(STDOUT_FILENO, "\b", 1);
-					write(STDOUT_FILENO, buffer->cursor, buffer->end - buffer->cursor + 1);
+					printf("buffer->end = '%c`", *buffer->end);
+					write(STDOUT_FILENO, buffer->cursor, buffer->end - buffer->cursor);
 					write(STDOUT_FILENO, " ", 1);
 					for (size_t i = 0; i < (size_t) (buffer->end - buffer->cursor + 1); ++i) {
 						write(STDOUT_FILENO, "\b", 1);
@@ -257,10 +260,8 @@ bool fill_buffer(Buffer *buffer)
 				}
 				break;
 			}
-
-			// TODO: Handle ctrl-v "verbatim insert" thing????
 			default: { // Printable character
-				if (buffer_len < BUFF_CAP - 1) { // Need space for the null terminator
+				if (buffer_len < BUFF_CAP - 1 && isprint(key[0])) { // Need space for the null terminator
 					write(STDOUT_FILENO, key, 1);
 					if (buffer->cursor != buffer->end) {
 						write(STDOUT_FILENO, buffer->cursor, buffer->end - buffer->cursor + 1);

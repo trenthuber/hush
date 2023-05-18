@@ -36,11 +36,6 @@ void print_lexeme(Lexeme lexeme)
 	printf("\n");
 }
 
-static bool is_digit(char chr)
-{
-	return chr >= '0' && chr <= '9';
-}
-
 static bool is_wspace(char chr)
 {
 	return isspace(chr) || chr == '\0';
@@ -76,7 +71,7 @@ Lexeme get_next_lexeme(Buffer *buffer)
 		case ';': {
 			result.type = HUSH_LEXEME_TYPE_END_OF_COMMAND;
 			if (++buffer->cursor == buffer->end) {
-				result.content = buffer->cursor;
+				result.content = buffer->cursor - 1;
 			} else if (is_wspace(*buffer->cursor)) {
 				*buffer->cursor = '\0';
 				result.content = buffer->cursor - 1;
@@ -85,7 +80,8 @@ Lexeme get_next_lexeme(Buffer *buffer)
 				result.content = (char *) malloc(2 * sizeof (char));
 				if (result.content == NULL) {
 					fprintf(stderr, "hush: unable to allocate memory\n");
-					exit(1);
+					result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+					return result;
 				}
 				result.content[0] = *(buffer->cursor - 1);
 				result.content[1] = '\0';
@@ -95,7 +91,7 @@ Lexeme get_next_lexeme(Buffer *buffer)
 		case '\'':
 		case '"': {
 			result.type = HUSH_LEXEME_TYPE_STRING;
-			assert(false && "get_next_lexeme: String literal lexing not implemented yet");
+			assert(false && "get_next_lexeme: string literal lexing not implemented yet");
 			break;
 		}
 		default: {
@@ -103,7 +99,7 @@ Lexeme get_next_lexeme(Buffer *buffer)
 			char *begin = buffer->cursor;
 
 			// "Skip" over any starting numbers
-			for (; buffer->cursor < buffer->end && is_digit(*buffer->cursor); ++buffer->cursor);
+			for (; buffer->cursor < buffer->end && isdigit(*buffer->cursor); ++buffer->cursor);
 
 			// Record the input file descriptor
 			if (buffer->cursor != begin) {
@@ -111,11 +107,13 @@ Lexeme get_next_lexeme(Buffer *buffer)
 				char *input_fd_str = (char *) malloc((input_fd_len + 1) * sizeof (char));
 				if (input_fd_str == NULL) {
 					fprintf(stderr, "hush: couldn't allocate memory to 'input_fd_str`\n");
-					exit(1);
+					result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+					return result;
 				}
 				input_fd_str[input_fd_len] = '\0';
 				strncpy(input_fd_str, begin, input_fd_len);
 				result.file_redirect.input_fd = (int) strtol(input_fd_str, (char **) NULL, 10);
+				free(input_fd_str);
 			}
 
 			// Check if the current lexeme is a file redirection
@@ -130,7 +128,8 @@ Lexeme get_next_lexeme(Buffer *buffer)
 					}
 					if (buffer->cursor == buffer->end) {
 						fprintf(stderr, "hush: parse error after '%s'\n", get_file_redirect_mode_string(result.file_redirect.mode));
-						exit(1);
+						result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+						return result;
 					}
 					if (*buffer->cursor == '>') {
 						++buffer->cursor;
@@ -142,28 +141,32 @@ Lexeme get_next_lexeme(Buffer *buffer)
 					}
 					if (buffer->cursor == buffer->end) {
 						fprintf(stderr, "hush: parse error after '%s`\n", get_file_redirect_mode_string(result.file_redirect.mode));
-						exit(1);
+						result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+						return result;
 					}
 
 					if (*buffer->cursor == '&') {
 						begin = ++buffer->cursor;
-						for (; buffer->cursor < buffer->end && is_digit(*buffer->cursor); ++buffer->cursor);
+						for (; buffer->cursor < buffer->end && isdigit(*buffer->cursor); ++buffer->cursor);
 						if (buffer->cursor == begin || *buffer->cursor == '<' || *buffer->cursor == '>' || \
 								!(buffer->cursor == buffer->end || is_lexeme_term(*buffer->cursor))) {
-							fprintf(stderr, "hush: parse error after '&`\n");
-							exit(1);
+							fprintf(stderr, "hush: parse error after '%s&`\n", get_file_redirect_mode_string(result.file_redirect.mode));
+							result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+							return result;
 						}
 						size_t output_fd_len = buffer->cursor - begin;
 						char *output_fd_str = (char *) malloc((output_fd_len + 1) * sizeof (char));
-						output_fd_str[output_fd_len + 1] = '\0';
+						output_fd_str[output_fd_len] = '\0';
 						strncpy(output_fd_str, begin, output_fd_len);
 						result.file_redirect.output_fd = (int) strtol(output_fd_str, (char **) NULL, 10);
+						free(output_fd_str);
 						return result;
 					} else {
 						for (; buffer->cursor < buffer->end && is_wspace(*buffer->cursor); ++buffer->cursor);
 						if (buffer->cursor == buffer->end) {
 							fprintf(stderr, "hush: parse error after '%s`\n", get_file_redirect_mode_string(result.file_redirect.mode));
-							exit(1);
+							result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+							return result;
 						}
 						begin = buffer->cursor;
 					}
@@ -188,7 +191,8 @@ Lexeme get_next_lexeme(Buffer *buffer)
 				result.content = (char *) malloc((content_len + 1) * sizeof (char));
 				if (result.content == NULL) {
 					fprintf(stderr, "hush: unable to allocate memory\n");
-					exit(1);
+					result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+					return result;
 				}
 				strncpy(result.content, begin, content_len);
 				result.content[content_len] = '\0';
@@ -197,7 +201,14 @@ Lexeme get_next_lexeme(Buffer *buffer)
 			if (result.type == HUSH_LEXEME_TYPE_FILE_REDIRECT) {
 				if ((result.file_redirect.output_fd = open(result.content, result.file_redirect.mode)) == -1) {
 					fprintf(stderr, "hush: file '%s` cannot be opened\n", result.content);
-					exit(1);
+					result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+					return result;
+				}
+
+				// Free the content if it was allocated
+				if (result.content < buffer->text || result.content > buffer->end) {
+					free(result.content);
+					result.content = NULL;
 				}
 			}
 		}
