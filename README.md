@@ -1,4 +1,4 @@
-# Huber Shell
-This is an implementation of a shell in C.
+# Humble Shell
+A simple and intuitive shell written entirely in C.
 
-To install simply run `make`. If the executable doesn't run, you can start it by running the file `./bin/hush`.
+To compile and run, simply run the `make` command. For running without compiling, run the executable directly with `./bin/hush`.
