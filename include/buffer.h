@@ -1,7 +1,7 @@
 #ifndef BUFFER_H_
 #define BUFFER_H_
 
-#define BUFF_CAP 100
+#define BUFF_CAP 4095
 #define HIST_CAP 1000
 
 typedef struct {

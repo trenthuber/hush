@@ -12,16 +12,21 @@ int main(void)
 	init_history();
 
 	while (true) {
-		Buffer *buffer = get_next_buffer();
-		if (buffer == NULL) {
+		
+		// Get the next buffer from the user
+		Buffer *direct_buffer = get_next_buffer();
+		if (direct_buffer == NULL) {
 			break;
 		}
-		printf("'%s`\n", buffer->text);
+		Buffer buffer = *direct_buffer; // Don't want the parser to clobber our history
+		buffer.cursor = buffer.text;
+		buffer.end = buffer.text + (direct_buffer->end - direct_buffer->text);
 
-		Command command = get_next_command(buffer);
+		// Parse the commands based on the buffer
+		Command command = get_next_command(&buffer);
 		while (command.name != NULL) {
 			print_command(command);
-			command = get_next_command(buffer);
+			command = get_next_command(&buffer);
 		}
 	}
 
