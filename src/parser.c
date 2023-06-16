@@ -63,7 +63,7 @@ Command get_next_command(Buffer *buffer)
 		switch (lexeme.type) {
 			case HUSH_LEXEME_TYPE_ARGUMENT: {
 				Array_LL *node = (Array_LL *) malloc(sizeof (Array_LL));
-				node->content = lexeme.content;
+				node->content = (void *) lexeme.content;
 				node->next = NULL;
 				*arg_temp = node;
 				arg_temp = &node->next;
@@ -75,13 +75,13 @@ Command get_next_command(Buffer *buffer)
 				break;
 			}
 			case HUSH_LEXEME_TYPE_FILE_REDIRECT: {
-				void *fr_malloc = (void *) malloc(sizeof (File_Redirect));
-				*(File_Redirect *) fr_malloc = lexeme.file_redirect;
+				File_Redirect *fr_malloc = (File_Redirect *) malloc(sizeof (File_Redirect));
+				*fr_malloc = lexeme.file_redirect;
 				Array_LL *node = (Array_LL *) malloc(sizeof (Array_LL));
 				if (num_frs == 0) {
 					frs_ll = node;
 				}
-				node->content = fr_malloc;
+				node->content = (void *) fr_malloc;
 				node->next = NULL;
 				*fr_temp = node;
 				fr_temp = &node->next;
