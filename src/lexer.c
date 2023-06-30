@@ -14,7 +14,6 @@ static char *get_lexeme_type_string(Hush_Lexeme_Type type)
 {
 	switch (type) {
 		case HUSH_LEXEME_TYPE_ARGUMENT: return "HUSH_LEXEME_TYPE_ARGUMENT";
-		case HUSH_LEXEME_TYPE_STRING: return "HUSH_LEXEME_TYPE_STRING";
 		case HUSH_LEXEME_TYPE_FILE_REDIRECT: return "HUSH_LEXEME_TYPE_FILE_REDIRECT";
 		case HUSH_LEXEME_TYPE_END_OF_COMMAND: return "HUSH_LEXEME_TYPE_END_OF_COMMAND";
 		case HUSH_LEXEME_TYPE_END_OF_BUFFER: return "HUSH_LEXEME_TYPE_END_OF_BUFFER";
@@ -88,12 +87,20 @@ Lexeme get_next_lexeme(Buffer *buffer)
 			}
 			break;
 		}
-		case '\'':
-		case '"': {
-			result.type = HUSH_LEXEME_TYPE_STRING;
-			assert(false && "get_next_lexeme: string literal lexing not implemented yet");
-			break;
-		}
+		// case '\'':
+		// case '"': {
+		// 	result.type = HUSH_LEXEME_TYPE_STRING;
+		// 	char quote_type = *(buffer->cursor++);
+		// 	result.content = buffer->cursor;
+		// 	for (; buffer->cursor < buffer->end && *buffer->cursor != quote_type; ++buffer->cursor);
+		// 	if (buffer->cursor == buffer->end) {
+		// 		fprintf(stderr, "hush: parse error, missing closing quote\n");
+		// 		result.type = HUSH_LEXEME_TYPE_END_OF_BUFFER;
+		// 		return result;
+		// 	}
+		// 	*(buffer->cursor++) = '\0';
+		// 	break;
+		// }
 		default: {
 			result.type = HUSH_LEXEME_TYPE_FILE_REDIRECT;
 			char *begin = buffer->cursor;
@@ -145,6 +152,7 @@ Lexeme get_next_lexeme(Buffer *buffer)
 						return result;
 					}
 
+					// TODO: Add string ('"` and ''`) lexing here
 					if (*buffer->cursor == '&') {
 						begin = ++buffer->cursor;
 						for (; buffer->cursor < buffer->end && isdigit(*buffer->cursor); ++buffer->cursor);
@@ -178,6 +186,7 @@ Lexeme get_next_lexeme(Buffer *buffer)
 				}
 			}
 
+			// TODO: String lexing here as well
 			for (; buffer->cursor < buffer->end && !is_lexeme_term(*buffer->cursor); ++buffer->cursor);
 
 			// Find the most efficient way to allocate memory to the lexeme content

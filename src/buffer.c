@@ -12,22 +12,11 @@
 
 #define KEY_CAP 5
 
-typedef struct termios Termios;
-static Termios original;
-
-typedef struct {
-	char *path;
-	Buffer buffs[HIST_CAP + 1];
-	Buffer *zero;
-	Buffer *cap;
-	Buffer *start;
-	Buffer *current;
-	Buffer *end;
-} History;
-static History hist;
-
 char * const hush_prompt = "hush % ";
 const size_t hush_prompt_len = strlen(hush_prompt);
+
+typedef struct termios Termios;
+static Termios original;
 
 void init_terminal(void)
 {
@@ -44,21 +33,22 @@ void release_terminal(void)
 	tcsetattr(STDIN_FILENO, TCSANOW, &original);
 }
 
-static void clear_terminal_prompt(void)
-{
-	write(STDOUT_FILENO, "\r", 1);
-	for (size_t i = 0; i < (hist.current->end - hist.current->text) + hush_prompt_len; ++i) {
-		write(STDOUT_FILENO, " ", 1);
-	}
-	write(STDOUT_FILENO, "\r", 1);
-	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
-}
-
 static void clear_buffer(Buffer *buff)
 {
 	memset(buff->text, 0, BUFF_CAP + 1);
 	buff->cursor = buff->end = buff->text;
 }
+
+typedef struct {
+	char *path;
+	Buffer buffs[HIST_CAP + 1];
+	Buffer *zero;
+	Buffer *cap;
+	Buffer *start;
+	Buffer *current;
+	Buffer *end;
+} History;
+static History hist;
 
 void init_history(void)
 {
@@ -124,6 +114,18 @@ void release_history(void)
 	fclose(hist_file);
 }
 
+static void clear_prompt(void)
+{
+	write(STDOUT_FILENO, "\r", 1);
+	for (size_t i = 0; i < (hist.current->end - hist.current->text) + hush_prompt_len; ++i) {
+		write(STDOUT_FILENO, " ", 1);
+	}
+	write(STDOUT_FILENO, "\r", 1);
+	write(STDOUT_FILENO, hush_prompt, hush_prompt_len);
+}
+
+static Buffer result;
+
 Buffer *get_next_buffer(void)
 {
 	// Set current buffer to the next buffer if current buffer has text
@@ -166,7 +168,10 @@ Buffer *get_next_buffer(void)
 
 				hist.end->cursor = hist.end->end;
 				*hist.end->end = '\0';
-				return hist.end;
+				result = *hist.end; // Result gets clobbered in lexing
+				result.cursor = result.text;
+				result.end = result.text + (hist.end->end - hist.end->text);
+				return &result;
 			}
 			case '\033': {
 				if (key[1] == '[') {
@@ -175,7 +180,7 @@ Buffer *get_next_buffer(void)
 							if (hist.current == hist.start) {
 								break;
 							}
-							clear_terminal_prompt();
+							clear_prompt();
 
 							hist.current->cursor = hist.current->end;
 							*hist.current->end = '\0';
@@ -191,7 +196,7 @@ Buffer *get_next_buffer(void)
 								break;
 							}
 
-							clear_terminal_prompt();
+							clear_prompt();
 
 							hist.current->cursor = hist.current->end;
 							*hist.current->end = '\0';
@@ -222,7 +227,7 @@ Buffer *get_next_buffer(void)
 						is_not_zero += key[i];
 					}
 					if (!is_not_zero) { // Escape key
-						clear_terminal_prompt();
+						clear_prompt();
 						hist.current = hist.end;
 						clear_buffer(hist.end);
 					}

@@ -14,19 +14,17 @@ int main(void)
 	while (true) {
 		
 		// Get the next buffer from the user
-		Buffer *direct_buffer = get_next_buffer();
-		if (direct_buffer == NULL) {
+		Buffer *buffer = get_next_buffer();
+		if (buffer == NULL) {
 			break;
 		}
-		Buffer buffer = *direct_buffer; // Don't want the parser to clobber our history
-		buffer.cursor = buffer.text;
-		buffer.end = buffer.text + (direct_buffer->end - direct_buffer->text);
+		// printf("BUFFER: '%s`\n", buffer->text);
 
 		// Parse the commands based on the buffer
-		Command command = get_next_command(&buffer);
+		Command command = get_next_command(buffer);
 		while (command.name != NULL) {
 			print_command(command);
-			command = get_next_command(&buffer);
+			command = get_next_command(buffer);
 		}
 	}
 

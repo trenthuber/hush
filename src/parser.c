@@ -46,7 +46,7 @@ Command get_next_command(Buffer *buffer)
 	if (lexeme.type == HUSH_LEXEME_TYPE_END_OF_BUFFER) {
 		return command;
 	}
-	if (lexeme.type != HUSH_LEXEME_TYPE_ARGUMENT) {
+	if (lexeme.type == HUSH_LEXEME_TYPE_END_OF_COMMAND) {
 		fprintf(stderr, "hush: parse error near '%s`\n", lexeme.content);
 		return command;
 	}
@@ -68,10 +68,6 @@ Command get_next_command(Buffer *buffer)
 				*arg_temp = node;
 				arg_temp = &node->next;
 				++num_args;
-				break;
-			}
-			case HUSH_LEXEME_TYPE_STRING: {
-				// TODO
 				break;
 			}
 			case HUSH_LEXEME_TYPE_FILE_REDIRECT: {
